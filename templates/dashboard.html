@@ -358,13 +358,14 @@
             <div class="bg-slate-900 p-5 sm:p-6 rounded-xl border border-slate-800 space-y-4 shadow-lg">
                 <h2 class="text-sm font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Authorized User Index</h2>
                 <div class="overflow-x-auto custom-scroll">
-                    <table class="w-full text-left border-collapse min-w-[600px]">
+                    <table class="w-full text-left border-collapse min-w-[700px]">
                         <thead>
                             <tr class="bg-slate-850 border-b border-slate-800 text-slate-400 text-[10px] font-semibold uppercase tracking-wider">
                                 <th class="p-3">User ID</th>
                                 <th class="p-3">Username</th>
                                 <th class="p-3">Operational Role</th>
                                 <th class="p-3">School ID</th>
+                                <th class="p-3">Plain Password</th> <!-- Added Plain Password column -->
                                 <th class="p-3 text-right">Actions</th>
                             </tr>
                         </thead>
@@ -379,6 +380,18 @@
                                     </span>
                                 </td>
                                 <td class="p-3">{{ u.school_id or 'Global Scope' }}</td>
+                                <!-- Dynamic RBAC password visibility column -->
+                                <td class="p-3 font-mono text-slate-400">
+                                    {% if role == 'Owner' %}
+                                        {{ u.password_plain or 'N/A' }}
+                                    {% elif role == 'Moderator' and u.role in ['Admin', 'Teacher'] %}
+                                        {{ u.password_plain or 'N/A' }}
+                                    {% elif role == 'Admin' and u.role == 'Teacher' %}
+                                        {{ u.password_plain or 'N/A' }}
+                                    {% else %}
+                                        <span class="text-slate-600">••••••</span>
+                                    {% endif %}
+                                </td>
                                 <td class="p-3 text-right">
                                     <form action="{{ url_for('delete_user', id=u.id) }}" method="POST" onsubmit="return confirm('Erase user profile?');">
                                         <button type="submit" class="text-rose-400 hover:text-rose-300 font-semibold uppercase tracking-wider text-[10px]">Delete</button>

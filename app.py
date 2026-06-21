@@ -34,6 +34,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
+    password_plain = db.Column(db.String(100), nullable=True) # Added to store plain text password
     role = db.Column(db.String(50), nullable=False)  # Owner, Moderator, Admin, Teacher
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id', ondelete='CASCADE'), nullable=True)
 
@@ -278,6 +279,7 @@ def create_user():
     new_user = User(
         username=username,
         password_hash=generate_password_hash(password),
+        password_plain=password, # Save plain text password directly
         role=role,
         school_id=target_school_id if target_school_id else None
     )
@@ -541,6 +543,7 @@ def seed_database():
         owner = User(
             username='GHEMANTH',
             password_hash=generate_password_hash('gopi2176susi1182hemu2607achu2612'),
+            password_plain='gopi2176susi1182hemu2607achu2612', # Seed master plain password
             role='Owner',
             school_id=None
         )
