@@ -222,13 +222,14 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">System Role</label>
-                                <select name="role" id="user-role-select" onchange="toggleTeacherForm(this.value)" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                <select name="role" id="user-role-select" onchange="handleRoleChange(this.value)" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
                                     {% if role == 'Owner' %}<option value="Moderator">Moderator</option>{% endif %}
                                     <option value="Admin">Admin</option>
                                     <option value="Teacher">Teacher</option>
                                 </select>
                             </div>
-                            <div>
+                            <!-- Wrapped with ID to toggle visibility dynamically -->
+                            <div id="school-affiliation-container">
                                 <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">School Affiliation</label>
                                 <select name="school_id" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
                                     {% for sch in schools %}
@@ -412,11 +413,24 @@
             if(tabId === 'substitutions-tab') fetchSubstitutions();
         }
 
-        function toggleTeacherForm(val) {
-            const container = document.getElementById('teacher-profile-fields');
-            if(container) {
-                if(val === 'Teacher') container.classList.remove('hidden');
-                else container.classList.add('hidden');
+        // Handles interactive UI field updates based on the selected user registration role
+        function handleRoleChange(val) {
+            const teacherContainer = document.getElementById('teacher-profile-fields');
+            if (teacherContainer) {
+                if (val === 'Teacher') {
+                    teacherContainer.classList.remove('hidden');
+                } else {
+                    teacherContainer.classList.add('hidden');
+                }
+            }
+
+            const schoolContainer = document.getElementById('school-affiliation-container');
+            if (schoolContainer) {
+                if (val === 'Moderator') {
+                    schoolContainer.classList.add('hidden');
+                } else {
+                    schoolContainer.classList.remove('hidden');
+                }
             }
         }
 
@@ -574,6 +588,11 @@
         // Trigger startup functions
         window.onload = function() {
             loadSelectGrades();
+            // Initialize default field views based on the default selected role dropdown value
+            const roleSelect = document.getElementById('user-role-select');
+            if (roleSelect) {
+                handleRoleChange(roleSelect.value);
+            }
         };
     </script>
 </body>

@@ -12,6 +12,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///school_management.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+
 # --- DATABASE MODELS ---
 
 class School(db.Model):
@@ -249,6 +250,7 @@ def create_user():
     role = request.form.get('role')
     target_school_id = request.form.get('school_id')
 
+    # RBAC constraints validation
     creator_role = session.get('role')
     if creator_role == 'Moderator' and role == 'Owner':
         flash('Unauthorized action.', 'danger')
@@ -259,10 +261,15 @@ def create_user():
             return redirect(url_for('dashboard'))
         target_school_id = session.get('school_id')
 
+    # Modification: Moderators are global multi-school managers and have no school affiliation
+    if role == 'Moderator':
+        target_school_id = None
+
     if not username or not password or not role:
         flash('Required form inputs missing.', 'danger')
         return redirect(url_for('dashboard'))
 
+    # Verify global username uniqueness
     existing_user = User.query.filter_by(username=username).first()
     if existing_user:
         flash('Username already registered globally.', 'danger')
@@ -277,6 +284,7 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
 
+    # Capture teacher profile variables if roles match
     if role == 'Teacher':
         expertise = request.form.get('subject_expertise', 'General')
         max_periods = int(request.form.get('max_periods_per_day', 5))
@@ -300,6 +308,7 @@ def delete_user(id):
     current_user_role = session.get('role')
     current_user_school = session.get('school_id')
 
+    # RBAC verification
     if current_user_role == 'Admin' and target_user.school_id != current_user_school:
         flash('Forbidden action.', 'danger')
         return redirect(url_for('dashboard'))
@@ -542,4 +551,4 @@ with app.app_context():
     seed_database()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False) 
+    app.run(host='0.0.0.0', port=5000, debug=True)
