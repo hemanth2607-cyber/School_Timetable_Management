@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Management Dashboard | Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .active-tab { border-bottom: 2px solid #38bdf8; color: #38bdf8; }
+        .grid-cell { min-height: 85px; min-width: 110px; }
+        /* Custom scrollbar interface for native touch experiences */
+        .custom-scroll::-webkit-scrollbar { height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #0b1329; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #334155; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col">
+
+    <!-- Responsive Navigation Header -->
+    <header class="bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-md">
+        <div class="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-left">
+            <span class="text-lg sm:text-xl font-bold bg-gradient-to-r from-sky-400 to-indigo-500 bg-clip-text text-transparent tracking-tight">
+                ALGORITHMIC SCHOOL SUITE
+            </span>
+            <span class="bg-slate-800 text-[10px] px-2.5 py-1 rounded text-slate-300 uppercase font-bold border border-slate-700 tracking-wider">
+                {{ role }}
+            </span>
+        </div>
+        <div class="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full sm:w-auto text-sm">
+            <span class="text-slate-400 text-xs sm:text-sm text-center">Authenticated: <strong class="text-white">{{ session['username'] }}</strong></span>
+            <a href="{{ url_for('logout') }}" class="w-full sm:w-auto text-center text-[11px] bg-red-950/40 hover:bg-red-950/70 text-red-300 px-4 py-2 rounded-lg font-bold border border-red-700/30 transition uppercase tracking-wider">
+                LOGOUT
+            </a>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-8">
+        
+        <!-- Alerts and Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, msg in messages %}
+              <div class="p-4 rounded-lg border text-xs sm:text-sm {% if category == 'success' %} bg-emerald-950/35 border-emerald-500/30 text-emerald-200 {% else %} bg-rose-950/35 border-rose-500/30 text-rose-200 {% endif %}">
+                {{ msg }}
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <!-- Horizontal Scrollable Navigation Tabs (Mobile Defensive Layout) -->
+        <div class="border-b border-slate-800 overflow-x-auto whitespace-nowrap flex space-x-6 text-sm font-semibold custom-scroll">
+            <button onclick="switchTab('timetable-tab')" class="tab-button pb-3 active-tab transition-colors">Weekly Timetable</button>
+            <button onclick="switchTab('attendance-tab')" class="tab-button pb-3 text-slate-400 hover:text-white transition-colors">Daily Attendance</button>
+            <button onclick="switchTab('substitutions-tab')" class="tab-button pb-3 text-slate-400 hover:text-white transition-colors">Smart Cover Logistics</button>
+            {% if role in ['Owner', 'Moderator', 'Admin'] %}
+                <button onclick="switchTab('admin-tab')" class="tab-button pb-3 text-slate-400 hover:text-white transition-colors">System Controls</button>
+            {% endif %}
+        </div>
+
+        <!-- 1. TIMETABLE TAB VIEW -->
+        <section id="timetable-tab" class="tab-content space-y-6">
+            <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-slate-900 p-4 rounded-xl border border-slate-800">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    <label class="text-xs sm:text-sm text-slate-400 font-bold uppercase tracking-wider">Target Class Grade</label>
+                    <select id="timetable-grade-select" onchange="fetchTimetable()" class="w-full sm:w-auto bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+                        <option value="">Select Grade</option>
+                    </select>
+                </div>
+                {% if role == 'Admin' %}
+                <form action="{{ url_for('trigger_ai_scheduler') }}" method="POST" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                    <label class="inline-flex items-center space-x-3 text-xs sm:text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" name="booster_mode" class="w-4 h-4 rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0">
+                        <span>Activate Exam Booster Priorities</span>
+                    </label>
+                    <button type="submit" class="bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition shadow-md shadow-sky-600/10 uppercase tracking-wide">
+                        REGENERATE SCHEDULE
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+
+            <!-- Responsive Scrolling Timetable Visualizer -->
+            <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-x-auto shadow-lg custom-scroll">
+                <table class="w-full text-left border-collapse min-w-[900px] table-fixed">
+                    <thead>
+                        <tr class="bg-slate-850 border-b border-slate-800 text-slate-300 text-xs font-semibold uppercase tracking-wider">
+                            <th class="p-4 w-28 border-r border-slate-800">Day</th>
+                            <th class="p-4 text-center border-r border-slate-800">P1 (08:30)</th>
+                            <th class="p-4 text-center border-r border-slate-800">P2 (09:20)</th>
+                            <th class="p-4 text-center border-r border-slate-800">P3 (10:10)</th>
+                            <th class="p-4 text-center border-r border-slate-800">P4 (11:00)</th>
+                            <th class="p-4 bg-slate-950 text-center text-slate-500 font-bold border-r border-slate-800 w-24">Lunch</th>
+                            <th class="p-4 text-center border-r border-slate-800">P5 (12:30)</th>
+                            <th class="p-4 text-center border-r border-slate-800">P6 (13:20)</th>
+                            <th class="p-4 text-center border-r border-slate-800">P7 (14:10)</th>
+                            <th class="p-4 text-center">P8 (15:00)</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800 text-xs sm:text-sm">
+                        <tr id="row-day-0"><td class="p-4 font-bold bg-slate-850 border-r border-slate-800">Monday</td></tr>
+                        <tr id="row-day-1"><td class="p-4 font-bold bg-slate-850 border-r border-slate-800">Tuesday</td></tr>
+                        <tr id="row-day-2"><td class="p-4 font-bold bg-slate-850 border-r border-slate-800">Wednesday</td></tr>
+                        <tr id="row-day-3"><td class="p-4 font-bold bg-slate-850 border-r border-slate-800">Thursday</td></tr>
+                        <tr id="row-day-4"><td class="p-4 font-bold bg-slate-850 border-r border-slate-800">Friday</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 2. ATTENDANCE MANAGEMENT TAB -->
+        <section id="attendance-tab" class="tab-content hidden space-y-6">
+            <div class="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-slate-900 p-4 rounded-xl border border-slate-800">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full md:w-auto">
+                    <div>
+                        <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Target Classification</label>
+                        <select id="attendance-type" onchange="fetchAttendance()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-white text-sm">
+                            <option value="Student">Students</option>
+                            <option value="Teacher">Teachers (Triggers Substitution)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Date</label>
+                        <input type="date" id="attendance-date" onchange="fetchAttendance()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-white text-sm">
+                    </div>
+                </div>
+                <div class="text-xs text-slate-400 italic md:text-right mt-2 md:mt-0">
+                    * Changing teacher attendance status automatically computes substitutions.
+                </div>
+            </div>
+
+            <!-- Attendance Data Table with Scroll Container -->
+            <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-x-auto shadow-lg custom-scroll">
+                <table class="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                        <tr class="bg-slate-850 border-b border-slate-800 text-slate-300 text-xs font-semibold uppercase tracking-wider">
+                            <th class="p-4">Entity Identification</th>
+                            <th class="p-4 w-48">Context Attribute</th>
+                            <th class="p-4 text-right">Status Determination (Click to Toggle)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-tbody" class="divide-y divide-slate-800 text-xs sm:text-sm">
+                        <!-- Filled by AJAX API calls -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 3. COVERAGE AND SUBSTITUTIONS LOGS -->
+        <section id="substitutions-tab" class="tab-content hidden space-y-6">
+            <div class="flex items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                <div>
+                    <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Track Log Date</label>
+                    <input type="date" id="sub-date" onchange="fetchSubstitutions()" class="bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-white text-sm">
+                </div>
+            </div>
+
+            <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-x-auto shadow-lg custom-scroll">
+                <table class="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                        <tr class="bg-slate-850 border-b border-slate-800 text-slate-300 text-xs font-semibold uppercase tracking-wider">
+                            <th class="p-4 w-28">Period</th>
+                            <th class="p-4">Target Class</th>
+                            <th class="p-4">Subject</th>
+                            <th class="p-4">Scheduled Teacher</th>
+                            <th class="p-4">Assigned Substitute Cover</th>
+                        </tr>
+                    </thead>
+                    <tbody id="substitutions-tbody" class="divide-y divide-slate-800 text-xs sm:text-sm">
+                        <!-- Filled by AJAX API calls -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 4. GLOBAL & REGIONAL CONTROLS -->
+        {% if role in ['Owner', 'Moderator', 'Admin'] %}
+        <section id="admin-tab" class="tab-content hidden space-y-8">
+            
+            {% if role in ['Owner', 'Moderator'] %}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Managing Schools -->
+                <div class="bg-slate-900 p-5 sm:p-6 rounded-xl border border-slate-800 space-y-5 shadow-lg">
+                    <h2 class="text-sm font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Register School Profile</h2>
+                    <form action="{{ url_for('add_school') }}" method="POST" class="space-y-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">School Name</label>
+                            <input type="text" name="name" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                        </div>
+                        <button type="submit" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition uppercase tracking-wide">Add School</button>
+                    </form>
+                    
+                    <div class="pt-4 border-t border-slate-800">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Registered School Units</h3>
+                        <div class="max-h-48 overflow-y-auto space-y-2 custom-scroll pr-1">
+                            {% for sch in schools %}
+                            <div class="flex justify-between items-center bg-slate-800/50 border border-slate-700/40 p-3 rounded-lg text-xs gap-4">
+                                <span class="font-medium truncate">{{ sch.name }} (ID: {{ sch.id }})</span>
+                                <form action="{{ url_for('delete_school', id=sch.id) }}" method="POST" class="shrink-0" onsubmit="return confirm('Deleting a school will perform a cascade delete on all associated users, records, and logs. Proceed?');">
+                                    <button type="submit" class="text-red-400 hover:text-red-300 font-semibold uppercase tracking-wider text-[10px]">Wipe</button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Creating Users/Staff -->
+                <div class="bg-slate-900 p-5 sm:p-6 rounded-xl border border-slate-800 space-y-5 shadow-lg">
+                    <h2 class="text-sm font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">User Registration Utility</h2>
+                    <form action="{{ url_for('create_user') }}" method="POST" class="space-y-4 text-xs">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">Username</label>
+                                <input type="text" name="username" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">Password</label>
+                                <input type="password" name="password" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">System Role</label>
+                                <select name="role" id="user-role-select" onchange="toggleTeacherForm(this.value)" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                    {% if role == 'Owner' %}<option value="Moderator">Moderator</option>{% endif %}
+                                    <option value="Admin">Admin</option>
+                                    <option value="Teacher">Teacher</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">School Affiliation</label>
+                                <select name="school_id" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                    {% for sch in schools %}
+                                    <option value="{{ sch.id }}">{{ sch.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Teacher Specific Fields -->
+                        <div id="teacher-profile-fields" class="hidden border-t border-slate-800 pt-4 space-y-4">
+                            <div>
+                                <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">Subject Expertise (Comma-separated)</label>
+                                <input type="text" name="subject_expertise" placeholder="Math, Physics" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">Max Periods Per Day</label>
+                                <input type="number" name="max_periods_per_day" value="5" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-2.5 rounded-lg transition uppercase tracking-wider">Save Account</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Admin Action Forms (Grid Alignment) -->
+            {% if role == 'Admin' %}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Register Student -->
+                <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4 shadow-lg">
+                    <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Register Student Roster</h3>
+                    <form action="{{ url_for('config_school') }}" method="POST" class="space-y-4">
+                        <input type="hidden" name="form_type" value="student">
+                        <div>
+                            <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Full Name</label>
+                            <input type="text" name="name" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Class Grade</label>
+                            <input type="text" name="grade_level" required placeholder="e.g. Grade 10" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                        </div>
+                        <button type="submit" class="w-full sm:w-auto bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition">Add Student</button>
+                    </form>
+                </div>
+
+                <!-- Register Subject -->
+                <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4 shadow-lg">
+                    <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Register Subject Course</h3>
+                    <form action="{{ url_for('config_school') }}" method="POST" class="space-y-4">
+                        <input type="hidden" name="form_type" value="subject">
+                        <div>
+                            <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Subject Name</label>
+                            <input type="text" name="name" required placeholder="e.g. Math" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Grade Level</label>
+                                <input type="text" name="grade_level" required placeholder="Grade 10" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Weekly Hours</label>
+                                <input type="number" name="weekly_hours" min="1" max="10" value="4" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full sm:w-auto bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition">Add Subject</button>
+                    </form>
+                </div>
+
+                <!-- Schedule Academic Exams -->
+                <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4 shadow-lg">
+                    <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Schedule Exam Date</h3>
+                    <form action="{{ url_for('config_school') }}" method="POST" class="space-y-4">
+                        <input type="hidden" name="form_type" value="exam">
+                        <div>
+                            <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Subject</label>
+                            <select name="subject_id" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none">
+                                {% for sub in subjects %}
+                                <option value="{{ sub.id }}">{{ sub.name }} ({{ sub.grade_level }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Exam Date</label>
+                                <input type="date" name="exam_date" required class="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Period</label>
+                                <input type="number" name="period" min="1" max="8" value="1" class="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full sm:w-auto bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition">Schedule Exam</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Single Quick Teacher Registration Panel for Admin -->
+            <div class="bg-slate-900 p-5 sm:p-6 rounded-xl border border-slate-800 space-y-4 shadow-lg">
+                <h3 class="text-sm font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Register Teacher Profile</h3>
+                <form action="{{ url_for('create_user') }}" method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                    <input type="hidden" name="role" value="Teacher">
+                    <div class="md:col-span-1">
+                        <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Username</label>
+                        <input type="text" name="username" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                    </div>
+                    <div class="md:col-span-1">
+                        <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Password</label>
+                        <input type="password" name="password" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                    </div>
+                    <div class="md:col-span-1">
+                        <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Expertise</label>
+                        <input type="text" name="subject_expertise" placeholder="Math, Science" required class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                    </div>
+                    <div class="md:col-span-1">
+                        <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Max Daily Limit</label>
+                        <input type="number" name="max_periods_per_day" value="5" class="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                    </div>
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg transition uppercase tracking-wider text-xs">Create Profile</button>
+                </form>
+            </div>
+            {% endif %}
+
+            <!-- User Database View with Scroll protection -->
+            <div class="bg-slate-900 p-5 sm:p-6 rounded-xl border border-slate-800 space-y-4 shadow-lg">
+                <h2 class="text-sm font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Authorized User Index</h2>
+                <div class="overflow-x-auto custom-scroll">
+                    <table class="w-full text-left border-collapse min-w-[600px]">
+                        <thead>
+                            <tr class="bg-slate-850 border-b border-slate-800 text-slate-400 text-[10px] font-semibold uppercase tracking-wider">
+                                <th class="p-3">User ID</th>
+                                <th class="p-3">Username</th>
+                                <th class="p-3">Operational Role</th>
+                                <th class="p-3">School ID</th>
+                                <th class="p-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800 text-xs text-slate-300">
+                            {% for u in all_users %}
+                            <tr class="hover:bg-slate-850/30">
+                                <td class="p-3">{{ u.id }}</td>
+                                <td class="p-3 font-bold text-white">{{ u.username }}</td>
+                                <td class="p-3">
+                                    <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700 text-slate-300 font-semibold uppercase">
+                                        {{ u.role }}
+                                    </span>
+                                </td>
+                                <td class="p-3">{{ u.school_id or 'Global Scope' }}</td>
+                                <td class="p-3 text-right">
+                                    <form action="{{ url_for('delete_user', id=u.id) }}" method="POST" onsubmit="return confirm('Erase user profile?');">
+                                        <button type="submit" class="text-rose-400 hover:text-rose-300 font-semibold uppercase tracking-wider text-[10px]">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+    </main>
+
+    <!-- --- ADAPTIVE AJAX CONTROLLER SCRIPT --- -->
+    <script>
+        // Set date pickers to today's date automatically
+        const todayStr = new Date().toISOString().split('T')[0];
+        document.getElementById('attendance-date').value = todayStr;
+        document.getElementById('sub-date').value = todayStr;
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active-tab', 'text-sky-400'));
+            
+            document.getElementById(tabId).classList.remove('hidden');
+            event.target.classList.add('active-tab');
+
+            if(tabId === 'timetable-tab') fetchTimetable();
+            if(tabId === 'attendance-tab') fetchAttendance();
+            if(tabId === 'substitutions-tab') fetchSubstitutions();
+        }
+
+        function toggleTeacherForm(val) {
+            const container = document.getElementById('teacher-profile-fields');
+            if(container) {
+                if(val === 'Teacher') container.classList.remove('hidden');
+                else container.classList.add('hidden');
+            }
+        }
+
+        // Fetch dynamic class select population
+        async function loadSelectGrades() {
+            const response = await fetch('/api/timetable');
+            const data = await response.json();
+            const select = document.getElementById('timetable-grade-select');
+            
+            if (data.grade && select.options.length <= 1) {
+                select.innerHTML = `<option value="${data.grade}" selected>${data.grade}</option>`;
+            }
+            fetchTimetable();
+        }
+
+        // Render aligned weekly timetable cells (8 periods + mid lunch break)
+        async function fetchTimetable() {
+            const grade = document.getElementById('timetable-grade-select').value;
+            const response = await fetch(`/api/timetable?grade_level=${encodeURIComponent(grade)}`);
+            const data = await response.json();
+
+            const select = document.getElementById('timetable-grade-select');
+            if (select.options.length <= 1 && data.grade) {
+                select.innerHTML = `<option value="${data.grade}">${data.grade}</option>`;
+            }
+
+            for(let d=0; d<5; d++) {
+                const row = document.getElementById(`row-day-${d}`);
+                const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+                row.innerHTML = `<td class="p-4 font-bold bg-slate-850 border-r border-slate-800 text-slate-100">${dayLabels[d]}</td>`;
+                
+                for(let p=1; p<=8; p++) {
+                    if(p === 5) {
+                        const breakCell = document.createElement('td');
+                        breakCell.className = "p-4 bg-slate-950/80 text-center text-slate-500 font-semibold border-r border-slate-800 text-[10px] uppercase tracking-wider";
+                        breakCell.textContent = "Lunch";
+                        row.appendChild(breakCell);
+                    }
+
+                    const slotCell = document.createElement('td');
+                    slotCell.className = "p-3 border-r border-slate-800 text-center grid-cell relative transition duration-150 hover:bg-slate-850/50";
+                    
+                    const slot = data.slots.find(s => s.day_of_week === d && s.period === p);
+                    if(slot) {
+                        const boosterTag = slot.is_revision ? '<span class="absolute top-1 right-1 bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[9px] font-bold px-1 rounded uppercase tracking-tighter">Revision</span>' : '';
+                        const textClass = slot.is_revision ? 'text-amber-400 font-semibold' : 'text-slate-100';
+                        
+                        slotCell.innerHTML = `
+                            ${boosterTag}
+                            <div class="${textClass} text-xs font-semibold truncate leading-tight">${slot.subject}</div>
+                            <div class="text-slate-400 text-[10px] mt-1.5 truncate">${slot.teacher}</div>
+                        `;
+                    } else {
+                        slotCell.innerHTML = `<div class="text-slate-600 text-[10px] italic">Free Period</div>`;
+                    }
+                    row.appendChild(slotCell);
+                }
+            }
+        }
+
+        // Fetch attendance rosters
+        async function fetchAttendance() {
+            const type = document.getElementById('attendance-type').value;
+            const date = document.getElementById('attendance-date').value;
+            const response = await fetch(`/api/attendance-list?entity_type=${type}&date=${date}`);
+            const data = await response.json();
+            
+            const tbody = document.getElementById('attendance-tbody');
+            tbody.innerHTML = '';
+            
+            if(data.records.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center text-slate-500 text-xs uppercase tracking-wider">No registered database items.</td></tr>`;
+                return;
+            }
+
+            data.records.forEach(rec => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-850/40 transition-colors";
+                
+                const statusColors = {
+                    "Present": "bg-emerald-950/40 border-emerald-500/30 text-emerald-300",
+                    "Absent": "bg-rose-950/40 border-rose-500/30 text-rose-300",
+                    "Half-day - Morning": "bg-amber-950/40 border-amber-500/30 text-amber-300",
+                    "Half-day - Evening": "bg-indigo-950/40 border-indigo-500/30 text-indigo-300"
+                };
+
+                const badges = ["Present", "Absent", "Half-day - Morning", "Half-day - Evening"].map(st => {
+                    const isSelected = rec.status === st;
+                    const activeStyle = isSelected ? `${statusColors[st]} font-bold shadow-sm` : "bg-slate-800/40 border-slate-700/60 text-slate-400 hover:text-white";
+                    return `<button onclick="updateAttendance(${rec.id}, '${type}', '${st}')" class="text-[10px] sm:text-xs px-2.5 py-1.5 rounded-md transition-all border ${activeStyle}">${st}</button>`;
+                }).join(' ');
+
+                tr.innerHTML = `
+                    <td class="p-4 font-semibold text-white whitespace-nowrap">${rec.name}</td>
+                    <td class="p-4 text-xs text-slate-400 truncate max-w-xs">${rec.extra}</td>
+                    <td class="p-4 text-right"><div class="flex flex-wrap justify-end gap-1.5">${badges}</div></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // POST dynamic attendance marking updates
+        async function updateAttendance(id, type, status) {
+            const date = document.getElementById('attendance-date').value;
+            const formData = new FormData();
+            formData.append('date', date);
+            formData.append('entity_type', type);
+            formData.append('entity_id', id);
+            formData.append('status', status);
+
+            const response = await fetch('/attendance/mark', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if(response.ok) {
+                fetchAttendance();
+            } else {
+                alert("Operation failed. Ensure your account permissions permit this selection.");
+            }
+        }
+
+        // Fetch and draw substitution grids
+        async function fetchSubstitutions() {
+            const date = document.getElementById('sub-date').value;
+            const response = await fetch(`/api/substitutions?date=${date}`);
+            const data = await response.json();
+            
+            const tbody = document.getElementById('substitutions-tbody');
+            tbody.innerHTML = '';
+            
+            if(data.substitutions.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-500 text-xs uppercase tracking-wider">No substitute coverage logs required for this date.</td></tr>`;
+                return;
+            }
+
+            data.substitutions.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-850/40 transition-colors";
+                tr.innerHTML = `
+                    <td class="p-4 font-bold text-slate-300">Period ${s.period}</td>
+                    <td class="p-4 truncate max-w-[120px]">${s.class_name}</td>
+                    <td class="p-4 text-sky-400 font-semibold truncate max-w-[150px]">${s.subject}</td>
+                    <td class="p-4 text-slate-400 truncate max-w-[150px]">${s.original_teacher}</td>
+                    <td class="p-4 font-semibold text-amber-300">
+                        <span class="px-2 py-1 rounded bg-amber-950/30 border border-amber-500/20 text-xs inline-block">
+                            ${s.substitute_teacher}
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Trigger startup functions
+        window.onload = function() {
+            loadSelectGrades();
+        };
+    </script>
+</body>
+</html>
