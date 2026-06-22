@@ -32,7 +32,7 @@ class School(db.Model):
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), unique=True, nullable=False)
+    username = db.Column(db.String(100), nullable=False) # Removed unique constraint globally to allow local duplicates
     password_hash = db.Column(db.String(200), nullable=False)
     password_plain = db.Column(db.String(100), nullable=True) # Added to store plain text password
     role = db.Column(db.String(50), nullable=False)  # Owner, Moderator, Admin, Teacher
@@ -139,19 +139,19 @@ def roles_allowed(*roles):
 
 # --- AUTH ROUTES ---
 
-@app.route('/')
-def index():
-    if 'user_id' in session:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        scope = request.form.get('school_id') # 'global' or string school id
         
-        user = User.query.filter_by(username=username).first()
+        # Resolve target database user based on scope selection
+        if scope == 'global':
+            user = User.query.filter_by(username=username, school_id=None).first()
+        else:
+            user = User.query.filter_by(username=username, school_id=int(scope)).first()
+            
         if user and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             session['username'] = user.username
@@ -159,8 +159,10 @@ def login():
             session['school_id'] = user.school_id
             return redirect(url_for('dashboard'))
         
-        flash('Invalid credentials. Check your details.', 'danger')
-    return render_template('login.html')
+        flash('Invalid credentials or incorrect portal scope selected.', 'danger')
+        
+    schools = School.query.all()
+    return render_template('login.html', schools=schools)
 
 @app.route('/logout')
 def logout():
@@ -184,13 +186,13 @@ def dashboard():
     subjects = []
     exams = []
     
+    # Gather structural database dependencies
+    schools = School.query.all()
     if user_role == 'Owner':
-        schools = School.query.all()
         moderators = User.query.filter_by(role='Moderator').all()
         admins = User.query.filter_by(role='Admin').all()
         teachers = User.query.filter_by(role='Teacher').all()
     elif user_role == 'Moderator':
-        schools = School.query.all()
         admins = User.query.filter(User.role == 'Admin').all()
         teachers = User.query.filter(User.role == 'Teacher').all()
     elif user_role in ['Admin', 'Teacher']:
@@ -202,10 +204,8 @@ def dashboard():
     # Dynamic User Index visibility mapping
     all_users_list = []
     if user_role in ['Owner', 'Moderator']:
-        # Owners and Moderators can ONLY see Admin credentials in their index
         all_users_list = User.query.filter_by(role='Admin').all()
     elif user_role == 'Admin':
-        # Admins can ONLY see Teachers and Admins belonging to their specific school
         all_users_list = User.query.filter(
             User.school_id == school_id,
             User.role.in_(['Teacher', 'Admin'])
@@ -226,7 +226,7 @@ def dashboard():
 
 @app.route('/school/add', methods=['POST'])
 @login_required
-@roles_allowed('Owner', 'Moderator') # Admins are securely blocked from adding schools
+@roles_allowed('Owner', 'Moderator')
 def add_school():
     name = request.form.get('name')
     if name:
@@ -266,18 +266,27 @@ def create_user():
             return redirect(url_for('dashboard'))
         target_school_id = session.get('school_id')
 
-    # Modification: Moderators are global multi-school managers and have no school affiliation
+    # Force global scope configurations for Moderators
     if role == 'Moderator':
         target_school_id = None
+
+    # Strict constraint: Admin or Teacher cannot be registered without an assigned school
+    if role in ['Admin', 'Teacher'] and not target_school_id:
+        flash(f'{role} accounts must be assigned to a specific school.', 'danger')
+        return redirect(url_for('dashboard'))
 
     if not username or not password or not role:
         flash('Required form inputs missing.', 'danger')
         return redirect(url_for('dashboard'))
 
-    # Verify global username uniqueness
-    existing_user = User.query.filter_by(username=username).first()
+    # Check localized username uniqueness
+    if role in ['Owner', 'Moderator']:
+        existing_user = User.query.filter_by(username=username, school_id=None).first()
+    else:
+        existing_user = User.query.filter_by(username=username, school_id=int(target_school_id)).first()
+
     if existing_user:
-        flash('Username already registered globally.', 'danger')
+        flash('Username already registered inside this scope.', 'danger')
         return redirect(url_for('dashboard'))
 
     new_user = User(
@@ -375,10 +384,17 @@ def config_school():
 
 @app.route('/scheduler/generate', methods=['POST'])
 @login_required
-@roles_allowed('Admin')
+@roles_allowed('Owner', 'Moderator', 'Admin') # Extended permissions
 def trigger_ai_scheduler():
     from scheduler_ai import TimetableGenerator
-    school_id = session.get('school_id')
+    user_role = session.get('role')
+    
+    # Overwrite targeted school identifier based on active execution privilege scope
+    if user_role in ['Owner', 'Moderator']:
+        school_id = int(request.form.get('school_id'))
+    else:
+        school_id = int(session.get('school_id'))
+        
     booster_mode = 'booster_mode' in request.form
 
     grades_query = db.session.query(Student.grade_level).filter_by(school_id=school_id).distinct().all()
@@ -460,20 +476,43 @@ def mark_attendance():
 
 # --- DATA FETCH ENDPOINTS ---
 
+@app.route('/api/school-grades')
+@login_required
+def get_school_grades():
+    user_role = session.get('role')
+    if user_role in ['Owner', 'Moderator']:
+        school_id = request.args.get('school_id')
+    else:
+        school_id = session.get('school_id')
+    if not school_id or school_id == "":
+        return jsonify({"grades": []})
+    
+    grades_query = db.session.query(Student.grade_level).filter_by(school_id=int(school_id)).distinct().all()
+    grades = [g[0] for g in grades_query]
+    return jsonify({"grades": grades})
+
 @app.route('/api/timetable')
 @login_required
 def get_timetable_data():
-    school_id = session.get('school_id')
+    user_role = session.get('role')
+    if user_role in ['Owner', 'Moderator']:
+        school_id = request.args.get('school_id')
+    else:
+        school_id = session.get('school_id')
+        
     grade = request.args.get('grade_level')
     
+    if not school_id or school_id == "":
+        return jsonify({"slots": []})
+        
     if not grade:
-        first_student = Student.query.filter_by(school_id=school_id).first()
+        first_student = Student.query.filter_by(school_id=int(school_id)).first()
         grade = first_student.grade_level if first_student else None
         
     if not grade:
         return jsonify({"slots": []})
         
-    slots = TimetableSlot.query.filter_by(school_id=school_id, class_name=grade).all()
+    slots = TimetableSlot.query.filter_by(school_id=int(school_id), class_name=grade).all()
     
     result = []
     for s in slots:

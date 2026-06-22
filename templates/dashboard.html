@@ -61,19 +61,38 @@
         <!-- 1. TIMETABLE TAB VIEW -->
         <section id="timetable-tab" class="tab-content space-y-6">
             <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                    <label class="text-xs sm:text-sm text-slate-400 font-bold uppercase tracking-wider">Target Class Grade</label>
-                    <select id="timetable-grade-select" onchange="fetchTimetable()" class="w-full sm:w-auto bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40">
-                        <option value="">Select Grade</option>
-                    </select>
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                    <!-- Owner / Moderator School Selector Interface -->
+                    {% if role in ['Owner', 'Moderator'] %}
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                        <label class="text-xs sm:text-sm text-slate-400 font-bold uppercase tracking-wider">Select School</label>
+                        <select id="timetable-school-select" onchange="loadGradesForSelectedSchool()" class="w-full sm:w-auto bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+                            <option value="">Select School</option>
+                            {% for sch in schools %}
+                            <option value="{{ sch.id }}">{{ sch.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                        <label class="text-xs sm:text-sm text-slate-400 font-bold uppercase tracking-wider">Target Class Grade</label>
+                        <select id="timetable-grade-select" onchange="fetchTimetable()" class="w-full sm:w-auto bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+                            <option value="">Select Grade</option>
+                        </select>
+                    </div>
                 </div>
-                {% if role == 'Admin' %}
+                
+                {% if role in ['Owner', 'Moderator', 'Admin'] %}
                 <form action="{{ url_for('trigger_ai_scheduler') }}" method="POST" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                    {% if role in ['Owner', 'Moderator'] %}
+                    <input type="hidden" name="school_id" id="generation-school-id">
+                    {% endif %}
                     <label class="inline-flex items-center space-x-3 text-xs sm:text-sm text-slate-300 cursor-pointer">
                         <input type="checkbox" name="booster_mode" class="w-4 h-4 rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0">
                         <span>Activate Exam Booster Priorities</span>
                     </label>
-                    <button type="submit" class="bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition shadow-md shadow-sky-600/10 uppercase tracking-wide">
+                    <button type="submit" onclick="syncSchoolIdForGeneration()" class="bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition shadow-md shadow-sky-600/10 uppercase tracking-wide">
                         REGENERATE SCHEDULE
                     </button>
                 </form>
@@ -179,7 +198,7 @@
             
             {% if role in ['Owner', 'Moderator'] %}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Managing Schools (Strictly hidden from Admins) -->
+                <!-- Managing Schools -->
                 <div class="bg-slate-900 p-5 sm:p-6 rounded-xl border border-slate-800 space-y-5 shadow-lg">
                     <h2 class="text-sm font-bold text-sky-400 uppercase tracking-wider border-b border-slate-800 pb-2">Register School Profile</h2>
                     <form action="{{ url_for('add_school') }}" method="POST" class="space-y-4">
@@ -316,7 +335,7 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Exam Date</label>
-                                <input type="date" name="exam_date" required class="w-full px-3.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
+                                <input type="date" name="exam_date" required class="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm">
                             </div>
                             <div>
                                 <label class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Period</label>
@@ -414,6 +433,8 @@
         document.getElementById('attendance-date').value = todayStr;
         document.getElementById('sub-date').value = todayStr;
 
+        const loggedInUserRole = "{{ role }}";
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active-tab', 'text-sky-400'));
@@ -447,8 +468,66 @@
             }
         }
 
-        // Fetch dynamic class select population
+        // Fetch dynamic class select population for Owners and Moderators
+        async function loadGradesForSelectedSchool() {
+            const schoolSelect = document.getElementById('timetable-school-select');
+            let schoolId = "";
+            if (schoolSelect) {
+                schoolId = schoolSelect.value;
+            }
+            if(!schoolId || schoolId === "") {
+                document.getElementById('timetable-grade-select').innerHTML = '<option value="">Select Grade</option>';
+                wipeGrid();
+                return;
+            }
+            
+            const response = await fetch(`/api/school-grades?school_id=${schoolId}`);
+            const data = await response.json();
+            
+            const select = document.getElementById('timetable-grade-select');
+            select.innerHTML = '<option value="">Select Grade</option>';
+            data.grades.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g;
+                opt.textContent = g;
+                select.appendChild(opt);
+            });
+            wipeGrid();
+        }
+
+        function wipeGrid() {
+            for(let d=0; d<5; d++) {
+                const row = document.getElementById(`row-day-${d}`);
+                const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+                row.innerHTML = `<td class="p-4 font-bold bg-slate-850 border-r border-slate-800 text-slate-100">${dayLabels[d]}</td>`;
+                for(let p=1; p<=8; p++) {
+                    if(p === 5) {
+                        const breakCell = document.createElement('td');
+                        breakCell.className = "p-4 bg-slate-950/80 text-center text-slate-500 font-semibold border-r border-slate-800 text-[10px] uppercase tracking-wider";
+                        breakCell.textContent = "Lunch";
+                        row.appendChild(breakCell);
+                    }
+                    const slotCell = document.createElement('td');
+                    slotCell.className = "p-3 border-r border-slate-800 text-center grid-cell relative transition duration-150 hover:bg-slate-850/50";
+                    slotCell.innerHTML = `<div class="text-slate-600 text-[10px] italic">Free Period</div>`;
+                    row.appendChild(slotCell);
+                }
+            }
+        }
+
+        function syncSchoolIdForGeneration() {
+            const schoolSelect = document.getElementById('timetable-school-select');
+            const genInput = document.getElementById('generation-school-id');
+            if (schoolSelect && genInput) {
+                genInput.value = schoolSelect.value;
+            }
+        }
+
+        // Fetch dynamic class select population (Admin / Teacher Flow)
         async function loadSelectGrades() {
+            if (["Owner", "Moderator"].includes(roleValue)) {
+                return; // Managed dynamically by loadGradesForSelectedSchool() instead
+            }
             const response = await fetch('/api/timetable');
             const data = await response.json();
             const select = document.getElementById('timetable-grade-select');
@@ -462,13 +541,19 @@
         // Render aligned weekly timetable cells (8 periods + mid lunch break)
         async function fetchTimetable() {
             const grade = document.getElementById('timetable-grade-select').value;
-            const response = await fetch(`/api/timetable?grade_level=${encodeURIComponent(grade)}`);
-            const data = await response.json();
-
-            const select = document.getElementById('timetable-grade-select');
-            if (select.options.length <= 1 && data.grade) {
-                select.innerHTML = `<option value="${data.grade}">${data.grade}</option>`;
+            const schoolSelect = document.getElementById('timetable-school-select');
+            let schoolId = "";
+            if (schoolSelect) {
+                schoolId = schoolSelect.value;
             }
+            
+            let url = `/api/timetable?grade_level=${encodeURIComponent(grade)}`;
+            if (schoolId) {
+                url += `&school_id=${schoolId}`;
+            }
+            
+            const response = await fetch(url);
+            const data = await response.json();
 
             for(let d=0; d<5; d++) {
                 const row = document.getElementById(`row-day-${d}`);
@@ -597,6 +682,9 @@
                 tbody.appendChild(tr);
             });
         }
+
+        // Save active role context as global variable
+        const roleValue = "{{ role }}";
 
         // Trigger startup functions
         window.onload = function() {

@@ -29,6 +29,15 @@
 
         <form action="{{ url_for('login') }}" method="POST" class="space-y-5">
             <div>
+                <label class="block text-slate-300 text-xs sm:text-sm font-semibold mb-1.5">Portal Scope (Affiliation)</label>
+                <select name="school_id" class="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/45 focus:border-sky-500">
+                    <option value="global">Global Portal (Owner & Moderators)</option>
+                    {% for sch in schools %}
+                    <option value="{{ sch.id }}">{{ sch.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
                 <label class="block text-slate-300 text-xs sm:text-sm font-semibold mb-1.5">Username</label>
                 <input type="text" name="username" required autocomplete="username"
                        class="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/45 focus:border-sky-500 transition-all">
