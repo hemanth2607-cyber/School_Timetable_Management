@@ -199,13 +199,17 @@ def dashboard():
         exams = ExamSchedule.query.filter_by(school_id=school_id).all()
         teachers = User.query.filter_by(school_id=school_id, role='Teacher').all()
 
+    # Dynamic User Index visibility mapping
     all_users_list = []
-    if user_role == 'Owner':
-        all_users_list = User.query.all()
-    elif user_role == 'Moderator':
-        all_users_list = User.query.filter(User.role.in_(['Admin', 'Teacher'])).all()
+    if user_role in ['Owner', 'Moderator']:
+        # Owners and Moderators can ONLY see Admin credentials in their index
+        all_users_list = User.query.filter_by(role='Admin').all()
     elif user_role == 'Admin':
-        all_users_list = User.query.filter_by(school_id=school_id).all()
+        # Admins can ONLY see Teachers and Admins belonging to their specific school
+        all_users_list = User.query.filter(
+            User.school_id == school_id,
+            User.role.in_(['Teacher', 'Admin'])
+        ).all()
 
     return render_template('dashboard.html', 
                            role=user_role, 
@@ -222,7 +226,7 @@ def dashboard():
 
 @app.route('/school/add', methods=['POST'])
 @login_required
-@roles_allowed('Owner', 'Moderator')
+@roles_allowed('Owner', 'Moderator') # Admins are securely blocked from adding schools
 def add_school():
     name = request.form.get('name')
     if name:
@@ -310,16 +314,25 @@ def delete_user(id):
     current_user_role = session.get('role')
     current_user_school = session.get('school_id')
 
-    # RBAC verification
-    if current_user_role == 'Admin' and target_user.school_id != current_user_school:
-        flash('Forbidden action.', 'danger')
-        return redirect(url_for('dashboard'))
-    if current_user_role == 'Moderator' and target_user.role in ['Owner', 'Moderator']:
-        flash('Forbidden action.', 'danger')
-        return redirect(url_for('dashboard'))
+    # Prevent deleting absolute system administrator GHEMANTH
     if target_user.username == 'GHEMANTH':
         flash('Cannot remove absolute system administrator.', 'danger')
         return redirect(url_for('dashboard'))
+
+    # Rule 1: Owner and Moderator can ONLY delete Admin credentials
+    if current_user_role in ['Owner', 'Moderator']:
+        if target_user.role != 'Admin':
+            flash('Unauthorized action. Owners and Moderators can only delete Admin accounts.', 'danger')
+            return redirect(url_for('dashboard'))
+
+    # Rule 2: Admin can see and delete Teachers and Admins ONLY (must belong to their specific school)
+    if current_user_role == 'Admin':
+        if target_user.school_id != current_user_school:
+            flash('Unauthorized action. You can only manage accounts within your own school.', 'danger')
+            return redirect(url_for('dashboard'))
+        if target_user.role not in ['Teacher', 'Admin']:
+            flash('Unauthorized action. Admins can only delete Teacher and Admin accounts.', 'danger')
+            return redirect(url_for('dashboard'))
 
     db.session.delete(target_user)
     db.session.commit()
